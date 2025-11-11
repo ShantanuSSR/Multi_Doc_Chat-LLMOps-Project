@@ -58,7 +58,7 @@ class ConversationalRAG:
         k: int = 5,
         index_name: str = "index",
         search_type: str = "mmr",
-        fetch_k: int = 20,
+        fetch_k: int = 10,
         lambda_mult: float = 0.5,
         search_kwargs: Optional[Dict[str, Any]] = None,
     ):
