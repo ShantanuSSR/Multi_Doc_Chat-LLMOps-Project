@@ -119,7 +119,24 @@ const ChatInterface: React.FC<ChatInterfaceProps> = React.memo(({ sessionId, onN
 
   const copyToClipboard = useCallback(async (text: string) => {
     try {
-      await navigator.clipboard.writeText(text);
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        const textArea = document.createElement('textarea');
+        textArea.value = text;
+        textArea.style.position = 'fixed';
+        textArea.style.left = '-999999px';
+        textArea.style.top = '-999999px';
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+        const successful = document.execCommand('copy');
+        document.body.removeChild(textArea);
+        if (!successful) {
+          throw new Error('Copy command failed');
+        }
+      }
+
       setSnackbar({
         open: true,
         message: 'Message copied to clipboard!',
@@ -129,7 +146,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = React.memo(({ sessionId, onN
       console.error('Copy failed:', err);
       setSnackbar({
         open: true,
-        message: 'Failed to copy message',
+        message: 'Failed to copy message. Please select and copy manually.',
         severity: 'error'
       });
     }
