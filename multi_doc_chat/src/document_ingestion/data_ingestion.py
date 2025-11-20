@@ -87,10 +87,21 @@ class ChatIngestor:
 
             texts = [c.page_content for c in chunks]
             metas = [c.metadata for c in chunks]
+            
+            # Debug logging
+            log.info("Text extraction debug", 
+                    total_chunks=len(chunks),
+                    total_texts=len(texts),
+                    sample_text_length=len(texts[0]) if texts else 0,
+                    sample_text_preview=texts[0][:100] if texts else "No text extracted")
+            
+            if not texts:
+                raise ValueError("No text content extracted from documents")
 
             try:
                 vs = fm.load_or_create(texts=texts, metadatas=metas)
-            except Exception:
+            except Exception as e:
+                log.error("First attempt failed, retrying", error=str(e))
                 vs = fm.load_or_create(texts=texts, metadatas=metas)
 
             added = fm.add_documents(chunks)
