@@ -83,51 +83,69 @@ class ModelLoader:
             log.error("Error loading embedding model", error=str(e))
             raise DocumentPortalException("Failed to load embedding model", sys)
 
-    def load_llm(self):
+    def load_llm(self, provider_override: str | None = None):
         """
         Load and return the configured LLM model.
         """
         llm_block = self.config["llm"]
-        provider_key = os.getenv("LLM_PROVIDER", "google")
+        provider_key = provider_override or os.getenv("LLM_PROVIDER", "google")
 
         if provider_key not in llm_block:
             log.error("LLM provider not found in config", provider=provider_key)
             raise ValueError(f"LLM provider '{provider_key}' not found in config")
 
-        llm_config = llm_block[provider_key]
-        provider = llm_config.get("provider")
-        model_name = llm_config.get("model_name")
-        temperature = llm_config.get("temperature", 0.2)
-        max_tokens = llm_config.get("max_output_tokens", 2048)
+        def _build_model(selected_provider: str):
+            """
+            Build a chat model for the given provider key from config.
+            """
+            if selected_provider not in llm_block:
+                raise ValueError(f"LLM provider '{selected_provider}' not found in config")
 
-        log.info("Loading LLM", provider=provider, model=model_name)
+            llm_config = llm_block[selected_provider]
+            provider = llm_config.get("provider")
+            model_name = llm_config.get("model_name")
+            temperature = llm_config.get("temperature", 0.2)
+            max_tokens = llm_config.get("max_output_tokens", 2048)
 
-        if provider == "google":
-            return ChatGoogleGenerativeAI(
-                model=model_name,
-                google_api_key=self.api_key_mgr.get("GOOGLE_API_KEY"),
-                temperature=temperature,
-                max_output_tokens=max_tokens
-            )
+            log.info("Loading LLM", provider=provider, model=model_name)
 
-        elif provider == "groq":
-            return ChatGroq(
-                model=model_name,
-                api_key=self.api_key_mgr.get("GROQ_API_KEY"), #type: ignore
-                temperature=temperature,
-            )
+            if provider == "google":
+                return ChatGoogleGenerativeAI(
+                    model=model_name,
+                    google_api_key=self.api_key_mgr.get("GOOGLE_API_KEY"),
+                    temperature=temperature,
+                    max_output_tokens=max_tokens
+                )
 
-        # elif provider == "openai":
-        #     return ChatOpenAI(
-        #         model=model_name,
-        #         api_key=self.api_key_mgr.get("OPENAI_API_KEY"),
-        #         temperature=temperature,
-        #         max_tokens=max_tokens
-        #     )
+            if provider == "groq":
+                return ChatGroq(
+                    model=model_name,
+                    api_key=self.api_key_mgr.get("GROQ_API_KEY"), #type: ignore
+                    temperature=temperature,
+                )
 
-        else:
             log.error("Unsupported LLM provider", provider=provider)
             raise ValueError(f"Unsupported LLM provider: {provider}")
+
+        # Try requested provider, then fallback to groq if Google fails with quota/transport errors.
+        try:
+            return _build_model(provider_key)
+        except Exception as e:
+            if provider_key == "google":
+                log.warning(
+                    "Primary Google LLM failed, attempting Groq fallback",
+                    error=str(e),
+                )
+                try:
+                    return _build_model("groq")
+                except Exception as groq_err:
+                    log.error(
+                        "Groq fallback also failed",
+                        primary_error=str(e),
+                        fallback_error=str(groq_err),
+                    )
+                    raise
+            raise
 
 
 if __name__ == "__main__":

@@ -2,6 +2,7 @@ import sys
 import os
 from operator import itemgetter
 from typing import List, Optional, Dict, Any
+from google.api_core import exceptions as google_exceptions
 
 from langchain_core.messages import BaseMessage
 from langchain_core.output_parsers import StrOutputParser
@@ -122,7 +123,27 @@ class ConversationalRAG:
                 )
             chat_history = chat_history or []
             payload = {"input": user_input, "chat_history": chat_history}
-            answer = self.chain.invoke(payload)
+            try:
+                answer = self.chain.invoke(payload)
+            except google_exceptions.ResourceExhausted as e:
+                # Automatic fallback to Groq when Google quota is exceeded.
+                log.warning(
+                    "Google LLM quota exhausted, attempting Groq fallback",
+                    error=str(e),
+                    session_id=self.session_id,
+                )
+                try:
+                    # Swap LLM to Groq and rebuild chain, then retry once.
+                    self.llm = ModelLoader().load_llm(provider_override="groq")
+                    self._build_lcel_chain()
+                    answer = self.chain.invoke(payload)
+                except Exception as fallback_err:
+                    log.error(
+                        "Groq fallback failed after Google quota exhaustion",
+                        error=str(fallback_err),
+                        session_id=self.session_id,
+                    )
+                    raise fallback_err
             if not answer:
                 log.warning(
                     "No answer generated", user_input=user_input, session_id=self.session_id
